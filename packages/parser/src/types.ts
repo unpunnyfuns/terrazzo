@@ -71,8 +71,27 @@ export interface Config {
    * @default "./tokens/"
    */
   outDir?: string;
-  /** Specify plugins */
-  plugins?: Plugin[];
+  /**
+   * Specify plugins. Each entry is either:
+   *
+   * - A constructed `Plugin` object (the common form):
+   *   ```ts
+   *   plugins: [css({ legacyHex: true })]
+   *   ```
+   * - A `[factory, options]` tuple — `defineConfig` invokes the factory
+   *   with the options and records both on the resulting Plugin's
+   *   `.options` slot, making the options visible to downstream
+   *   tooling that wants to introspect what each plugin was
+   *   constructed with:
+   *   ```ts
+   *   plugins: [[css, { legacyHex: true }]]
+   *   ```
+   *   The tuple form is opt-in and only needed when a plugin doesn't
+   *   itself populate `Plugin.options` and a consumer wants the
+   *   options reflected back. Existing array-of-Plugin usage keeps
+   *   working unchanged.
+   */
+  plugins?: PluginEntry[];
   /** Alphabetize tokens by ID to make output more consistent (note: some plugins may not preserve this order). @default true */
   alphabetize?: boolean;
   /** Specify linting settings */
@@ -313,6 +332,23 @@ export interface ParseOptions {
   /** Resolve DTCG aliases? You’d typically only pass in `false` when normalizing or performing partial parsing. */
   resolveAliases?: boolean;
 }
+
+/**
+ * A plugin factory. Most plugins ship as `(options?) => Plugin`
+ * functions so they can be constructed inline in a user's config.
+ * The tuple form of `Config.plugins` invokes the factory with the
+ * supplied options at config-resolution time.
+ */
+export type PluginFactory<O = Record<string, unknown>> = (options?: O) => Plugin;
+
+/**
+ * One entry in `Config.plugins`. Either a constructed `Plugin`, or a
+ * `[factory, options]` tuple that `defineConfig` resolves by invoking
+ * the factory and attaching the options to the resulting `Plugin.options`.
+ */
+export type PluginEntry =
+  | Plugin
+  | readonly [factory: PluginFactory, options: Readonly<Record<string, unknown>>];
 
 export interface Plugin {
   name: string;

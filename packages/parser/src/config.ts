@@ -1,7 +1,7 @@
 import { merge } from 'merge-anything';
 import coreLintPlugin, { RECOMMENDED_CONFIG } from './lint/plugin-core/index.js';
 import Logger from './logger.js';
-import type { Config, ConfigInit, ConfigOptions, LintRuleSeverity } from './types.js';
+import type { Config, ConfigInit, ConfigOptions, LintRuleSeverity, Plugin } from './types.js';
 
 const TRAILING_SLASH_RE = /\/*$/;
 
@@ -130,18 +130,56 @@ function normalizePlugins({ config, logger }: { config: ConfigInit; logger: Logg
       message: `plugins: Expected array of plugins, received ${JSON.stringify(config.plugins)}`,
     });
   }
-  config.plugins.push(coreLintPlugin());
-  for (let n = 0; n < config.plugins.length; n++) {
-    const plugin = config.plugins[n];
-    if (typeof plugin !== 'object') {
+  // Resolve `[factory, options]` tuples to constructed Plugins, attaching
+  // the options to `Plugin.options` so downstream tooling can introspect
+  // what each plugin was constructed with — without the plugin author
+  // having to opt in by populating the field themselves.
+  // biome-ignore lint/suspicious/noExplicitAny: tuple-typed entries are mixed with Plugin objects pre-normalization.
+  const rawEntries = config.plugins as any[];
+  const resolvedPlugins: Plugin[] = [];
+  for (let n = 0; n < rawEntries.length; n++) {
+    const entry = rawEntries[n];
+    if (Array.isArray(entry)) {
+      const [factory, options] = entry;
+      if (typeof factory !== 'function') {
+        logger.error({
+          group: 'config',
+          message: `plugin#${n}: Expected [factory, options] tuple — first item must be a function, received ${JSON.stringify(factory)}`,
+        });
+        continue;
+      }
+      let plugin: Plugin;
+      try {
+        plugin = factory(options);
+      } catch (error) {
+        logger.error({
+          group: 'config',
+          message: `plugin#${n}: Factory threw during construction — ${error instanceof Error ? error.message : String(error)}`,
+        });
+        continue;
+      }
+      // Only set .options if the plugin didn't populate it itself —
+      // an opt-in plugin's own options object stays authoritative.
+      if (plugin.options === undefined) {
+        plugin.options = options as Readonly<Record<string, unknown>>;
+      }
+      resolvedPlugins.push(plugin);
+      continue;
+    }
+    if (typeof entry !== 'object' || entry === null) {
       logger.error({
         group: 'config',
-        message: `plugin#${n}: Expected output plugin, received ${JSON.stringify(plugin)}`,
+        message: `plugin#${n}: Expected output plugin, received ${JSON.stringify(entry)}`,
       });
-    } else if (!plugin.name) {
+      continue;
+    }
+    if (!entry.name) {
       logger.error({ group: 'config', label: `plugin[${n}]`, message: `Missing "name"` });
     }
+    resolvedPlugins.push(entry as Plugin);
   }
+  resolvedPlugins.push(coreLintPlugin());
+  config.plugins = resolvedPlugins;
   // order plugins with "enforce"
   config.plugins.sort((a, b) => {
     if (a.enforce === 'pre' && b.enforce !== 'pre') {
