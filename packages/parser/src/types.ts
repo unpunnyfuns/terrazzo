@@ -314,8 +314,67 @@ export interface ParseOptions {
   resolveAliases?: boolean;
 }
 
+/**
+ * Symbol slot a plugin uses to expose the options it was constructed
+ * with. Lets downstream tooling (config inspectors, alignment helpers,
+ * content-hash inputs, IDE integrations) read the configuration of
+ * each plugin without cracking open the plugin's closure.
+ *
+ * Plugin authors opt in by writing `[PLUGIN_OPTIONS]: options` on
+ * the Plugin object their factory returns. Consumers read via the
+ * {@link getPluginOptions} helper rather than touching the symbol
+ * directly. `Symbol.for(...)` keeps the slot globally registered, so
+ * plugins shipped against different (compatible) parser versions
+ * still resolve to a single inspection key.
+ *
+ * Example (plugin author):
+ * ```ts
+ * import { PLUGIN_OPTIONS, type Plugin } from '@terrazzo/parser';
+ *
+ * export default function myPlugin(options: MyPluginOptions = {}): Plugin {
+ *   return {
+ *     name: '@scope/my-plugin',
+ *     [PLUGIN_OPTIONS]: options,
+ *     async build() {  ...  },
+ *   };
+ * }
+ * ```
+ *
+ * Example (consumer):
+ * ```ts
+ * import { getPluginOptions } from '@terrazzo/parser';
+ *
+ * for (const plugin of config.plugins) {
+ *   const opts = getPluginOptions(plugin);
+ *   if (opts) console.log(`${plugin.name}:`, opts);
+ * }
+ * ```
+ */
+export const PLUGIN_OPTIONS: unique symbol = Symbol.for('@terrazzo/plugin-options');
+
+/**
+ * Read the options a plugin was constructed with, when the plugin
+ * opted in via the {@link PLUGIN_OPTIONS} slot. Returns `undefined`
+ * for plugins that haven't opted in.
+ *
+ * The returned object is opaque — each plugin owns its option shape.
+ * Consumers should treat it as `Record<string, unknown>` and narrow
+ * only after a `plugin.name` check.
+ */
+export function getPluginOptions(plugin: Plugin): Readonly<Record<string, unknown>> | undefined {
+  const slot = (plugin as unknown as Record<symbol, unknown>)[PLUGIN_OPTIONS];
+  if (slot === undefined || slot === null || typeof slot !== 'object') return undefined;
+  return slot as Readonly<Record<string, unknown>>;
+}
+
 export interface Plugin {
   name: string;
+  /**
+   * Optional slot for plugin authors to expose the options they were
+   * constructed with — see {@link PLUGIN_OPTIONS} for the convention
+   * and {@link getPluginOptions} for the reader.
+   */
+  [PLUGIN_OPTIONS]?: Readonly<Record<string, unknown>>;
   /** Read config, and optionally modify */
   // biome-ignore lint/suspicious/noConfusingVoidType format: this helps plugins be a little looser on their typing
   config?(config: ConfigInit, context: PluginHookContext): void | ConfigInit | undefined;
