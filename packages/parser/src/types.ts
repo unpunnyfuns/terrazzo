@@ -71,27 +71,8 @@ export interface Config {
    * @default "./tokens/"
    */
   outDir?: string;
-  /**
-   * Specify plugins. Each entry is either:
-   *
-   * - A constructed `Plugin` object (the common form):
-   *   ```ts
-   *   plugins: [css({ legacyHex: true })]
-   *   ```
-   * - A `[factory, options]` tuple — `defineConfig` invokes the factory
-   *   with the options and records both on the resulting Plugin's
-   *   `.options` slot, making the options visible to downstream
-   *   tooling that wants to introspect what each plugin was
-   *   constructed with:
-   *   ```ts
-   *   plugins: [[css, { legacyHex: true }]]
-   *   ```
-   *   The tuple form is opt-in and only needed when a plugin doesn't
-   *   itself populate `Plugin.options` and a consumer wants the
-   *   options reflected back. Existing array-of-Plugin usage keeps
-   *   working unchanged.
-   */
-  plugins?: PluginEntry[];
+  /** Specify plugins */
+  plugins?: Plugin[];
   /** Alphabetize tokens by ID to make output more consistent (note: some plugins may not preserve this order). @default true */
   alphabetize?: boolean;
   /** Specify linting settings */
@@ -334,48 +315,66 @@ export interface ParseOptions {
 }
 
 /**
- * A plugin factory. Most plugins ship as `(options?) => Plugin`
- * functions so they can be constructed inline in a user's config.
- * The tuple form of `Config.plugins` invokes the factory with the
- * supplied options at config-resolution time.
+ * Symbol slot a plugin uses to expose the options it was constructed
+ * with. Lets downstream tooling (config inspectors, alignment helpers,
+ * content-hash inputs, IDE integrations) read the configuration of
+ * each plugin without cracking open the plugin's closure.
+ *
+ * Plugin authors opt in by writing `[PLUGIN_OPTIONS]: options` on
+ * the Plugin object their factory returns. Consumers read via the
+ * {@link getPluginOptions} helper rather than touching the symbol
+ * directly. `Symbol.for(...)` keeps the slot globally registered, so
+ * plugins shipped against different (compatible) parser versions
+ * still resolve to a single inspection key.
+ *
+ * Example (plugin author):
+ * ```ts
+ * import { PLUGIN_OPTIONS, type Plugin } from '@terrazzo/parser';
+ *
+ * export default function myPlugin(options: MyPluginOptions = {}): Plugin {
+ *   return {
+ *     name: '@scope/my-plugin',
+ *     [PLUGIN_OPTIONS]: options,
+ *     async build() {  ...  },
+ *   };
+ * }
+ * ```
+ *
+ * Example (consumer):
+ * ```ts
+ * import { getPluginOptions } from '@terrazzo/parser';
+ *
+ * for (const plugin of config.plugins) {
+ *   const opts = getPluginOptions(plugin);
+ *   if (opts) console.log(`${plugin.name}:`, opts);
+ * }
+ * ```
  */
-export type PluginFactory<O = Record<string, unknown>> = (options?: O) => Plugin;
+export const PLUGIN_OPTIONS: unique symbol = Symbol.for('@terrazzo/plugin-options');
 
 /**
- * One entry in `Config.plugins`. Either a constructed `Plugin`, or a
- * `[factory, options]` tuple that `defineConfig` resolves by invoking
- * the factory and attaching the options to the resulting `Plugin.options`.
+ * Read the options a plugin was constructed with, when the plugin
+ * opted in via the {@link PLUGIN_OPTIONS} slot. Returns `undefined`
+ * for plugins that haven't opted in.
+ *
+ * The returned object is opaque — each plugin owns its option shape.
+ * Consumers should treat it as `Record<string, unknown>` and narrow
+ * only after a `plugin.name` check.
  */
-export type PluginEntry =
-  | Plugin
-  | readonly [factory: PluginFactory, options: Readonly<Record<string, unknown>>];
+export function getPluginOptions(plugin: Plugin): Readonly<Record<string, unknown>> | undefined {
+  const slot = (plugin as unknown as Record<symbol, unknown>)[PLUGIN_OPTIONS];
+  if (slot === undefined || slot === null || typeof slot !== 'object') return undefined;
+  return slot as Readonly<Record<string, unknown>>;
+}
 
 export interface Plugin {
   name: string;
   /**
-   * The options the plugin was constructed with, exposed for downstream
-   * tooling (config inspectors, alignment helpers, content-hash inputs)
-   * to read without cracking open the plugin's closure.
-   *
-   * Plugin authors are encouraged to populate this by passing through
-   * the resolved options object their factory received. Consumers
-   * should treat the value as opaque (each plugin owns its option
-   * shape) and shouldn't mutate it. Plugins that prefer not to expose
-   * options leave this field unset.
-   *
-   * Example:
-   * ```ts
-   * export default function myPlugin(options: MyPluginOptions = {}): Plugin {
-   *   const opts = { ...defaults, ...options };
-   *   return {
-   *     name: '@scope/my-plugin',
-   *     options: opts,
-   *     async build() { ... },
-   *   };
-   * }
-   * ```
+   * Optional slot for plugin authors to expose the options they were
+   * constructed with — see {@link PLUGIN_OPTIONS} for the convention
+   * and {@link getPluginOptions} for the reader.
    */
-  options?: Readonly<Record<string, unknown>>;
+  [PLUGIN_OPTIONS]?: Readonly<Record<string, unknown>>;
   /** Read config, and optionally modify */
   // biome-ignore lint/suspicious/noConfusingVoidType format: this helps plugins be a little looser on their typing
   config?(config: ConfigInit, context: PluginHookContext): void | ConfigInit | undefined;

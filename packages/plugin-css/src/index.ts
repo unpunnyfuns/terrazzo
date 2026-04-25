@@ -1,4 +1,4 @@
-import type { Plugin } from '@terrazzo/parser';
+import { PLUGIN_OPTIONS, type Plugin } from '@terrazzo/parser';
 import buildCSS from './build.js';
 import { type CSSPluginOptions, FILE_PREFIX, PLUGIN_NAME } from './lib.js';
 import transformCSS from './transform.js';
@@ -29,7 +29,7 @@ export default function cssPlugin(options?: CSSPluginOptions): Plugin {
 
   return {
     name: PLUGIN_NAME,
-    options: (options ?? {}) as Readonly<Record<string, unknown>>,
+    [PLUGIN_OPTIONS]: (options ?? {}) as Readonly<Record<string, unknown>>,
     config(_config, context) {
       if (options?.permutations && (options?.modeSelectors || options?.baseSelector || options?.baseScheme)) {
         context.logger.error({
