@@ -4,19 +4,28 @@
 "@terrazzo/plugin-token-listing": minor
 ---
 
-Expose plugin options for downstream tooling that needs to introspect what each plugin was constructed with — config inspectors, alignment helpers (e.g. a Storybook addon keeping its preview build aligned with a production CLI build by reading the user's existing `terrazzo.config.ts`), content-hash inputs, IDE integrations.
+Add `PLUGIN_OPTIONS` symbol slot + `getPluginOptions(plugin)` helper for downstream tooling that wants to inspect what each plugin was constructed with — config inspectors, alignment helpers (e.g. a Storybook addon keeping its preview build aligned with a production CLI build by reading the user's existing `terrazzo.config.ts`), content-hash inputs, IDE integrations.
 
-Two layers, both opt-in and backwards compatible:
+```ts
+// Plugin author opts in by writing the slot:
+import { PLUGIN_OPTIONS, type Plugin } from '@terrazzo/parser';
 
-- **`Plugin.options`** — a new optional field on the `Plugin` type. Plugin authors populate it by passing through the resolved options object their factory received. Consumers treat it as opaque per-plugin shape. `@terrazzo/plugin-css` and `@terrazzo/plugin-token-listing` adopt the convention.
-- **`PluginEntry` tuple form in `Config.plugins`** — `defineConfig` now accepts `[factory, options]` tuples alongside plain `Plugin` objects. The factory is invoked with the options at config-resolution time, and the options are attached to the resulting `Plugin.options` if the plugin didn't populate it itself. This lets users gain introspection on plugins that haven't (yet) opted in by spelling out the construction in tuple form:
-  ```ts
-  defineConfig({
-    plugins: [
-      css({ legacyHex: true }),                    // existing — closure-trapped
-      [swift, { catalogName: 'Tokens' }],          // new — options visible to tooling
-    ],
-  });
-  ```
+export default function myPlugin(options: MyOptions = {}): Plugin {
+  return {
+    name: '@scope/my-plugin',
+    [PLUGIN_OPTIONS]: options,
+    async build() { ... },
+  };
+}
 
-Plugins that opt in via `Plugin.options` work transparently (no user-side change). Plugins that haven't opted in still work unchanged when called the normal way; users who want introspection on those can write the tuple form. Existing `plugins: Plugin[]` configs continue to work without modification.
+// Consumer reads via the helper:
+import { getPluginOptions } from '@terrazzo/parser';
+for (const plugin of config.plugins) {
+  const opts = getPluginOptions(plugin);
+  if (opts) console.log(`${plugin.name}:`, opts);
+}
+```
+
+`@terrazzo/plugin-css` and `@terrazzo/plugin-token-listing` adopt the convention. Plugins that don't opt in see no behavioural change — the slot is optional and `getPluginOptions` returns `undefined` for them.
+
+The slot is symbol-keyed (`Symbol.for('@terrazzo/plugin-options')`) so the public Plugin shape doesn't gain a `options` property name that could collide with existing third-party plugin types. `Symbol.for(...)` keeps the slot globally registered, so plugins shipped against compatible-but-different parser versions still expose options to a single inspection call.
