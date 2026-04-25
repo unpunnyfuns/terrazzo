@@ -29,6 +29,7 @@ export default function cssPlugin(options?: CSSPluginOptions): Plugin {
 
   return {
     name: PLUGIN_NAME,
+    options: (options ?? {}) as Readonly<Record<string, unknown>>,
     config(_config, context) {
       if (options?.permutations && (options?.modeSelectors || options?.baseSelector || options?.baseScheme)) {
         context.logger.error({

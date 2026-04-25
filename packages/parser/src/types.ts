@@ -316,6 +316,30 @@ export interface ParseOptions {
 
 export interface Plugin {
   name: string;
+  /**
+   * The options the plugin was constructed with, exposed for downstream
+   * tooling (config inspectors, alignment helpers, content-hash inputs)
+   * to read without cracking open the plugin's closure.
+   *
+   * Plugin authors are encouraged to populate this by passing through
+   * the resolved options object their factory received. Consumers
+   * should treat the value as opaque (each plugin owns its option
+   * shape) and shouldn't mutate it. Plugins that prefer not to expose
+   * options leave this field unset.
+   *
+   * Example:
+   * ```ts
+   * export default function myPlugin(options: MyPluginOptions = {}): Plugin {
+   *   const opts = { ...defaults, ...options };
+   *   return {
+   *     name: '@scope/my-plugin',
+   *     options: opts,
+   *     async build() { ... },
+   *   };
+   * }
+   * ```
+   */
+  options?: Readonly<Record<string, unknown>>;
   /** Read config, and optionally modify */
   // biome-ignore lint/suspicious/noConfusingVoidType format: this helps plugins be a little looser on their typing
   config?(config: ConfigInit, context: PluginHookContext): void | ConfigInit | undefined;

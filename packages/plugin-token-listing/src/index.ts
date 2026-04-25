@@ -7,6 +7,7 @@ export * from './lib.js';
 export default function tokenListingPlugin(options: TokenListingPluginOptions): Plugin {
   return {
     name: '@terrazzo/plugin-token-listing',
+    options: options as Readonly<Record<string, unknown>>,
     enforce: 'post',
     build: getBuild(options),
   };
