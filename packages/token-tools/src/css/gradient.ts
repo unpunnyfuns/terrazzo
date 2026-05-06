@@ -30,7 +30,7 @@ export function transformGradient(
     positions.push(
       token.partialAliasOf?.[i]?.position
         ? transformAlias(tokensSet[token.partialAliasOf[i]!.position!]!)
-        : `${100 * position}%`,
+        : `${+(100 * position).toFixed(3)}%`,
     );
   }
 
@@ -47,3 +47,4 @@ export function transformGradient(
         rec2020: token.$value.map((_, i) => formatStop(i, 'rec2020')).join(', '),
       };
 }
+
